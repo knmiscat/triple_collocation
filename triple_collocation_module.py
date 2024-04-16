@@ -1,10 +1,6 @@
 # Python program for triple collocation
 #
-# Version 1.1  24-04-2020
-#
-# Difference with version 1.0: corrected handling of representativeness errors
-#                              Version 1.0 is NOT correct; do not use it anymore
-#
+# Version 1.0  29-04-2019
 # Jur Vogelzang (KNMI)
 # with help from Jos de Kloe and Jeroen Verspeek (KNMI)
 #
@@ -132,27 +128,31 @@ class TripColProcess:
 
 
     def solve(self, repr_err, precision):
-        #+
-        # calculate covariances; include representativeness of systems 0 and 1 w.r.t. system 2
+        #
+        # calculate covariances
         #
         for i in range(3):
             for j in range(3):
                 self.C[i][j] = self.M2[i][j] - self.M1[i]*self.M1[j]
 
         self.C[0][0] = self.C[0][0] - repr_err
-        self.C[0][1] = self.C[0][1] - repr_err
-        self.C[1][0] = self.C[1][0] - repr_err
-        self.C[1][1] = self.C[1][1] - repr_err
+        self.C[0][1] = self.C[0][1] - self.a[1]*repr_err
+        self.C[1][0] = self.C[1][0] - self.a[1]*repr_err
+        self.C[1][1] = self.C[1][1] - self.a[1]*self.a[1]*repr_err
 
-        # solve covariance equations for common variance and calibration
+        # solve covariance equations
         #
-        self.t2 = self.C[1][0] * self.C[2][0] / self.C[2][1]         # common variance
+        self.t2 = self.C[1][0] * self.C[2][0] / self.C[2][1]                     # common variance
 
-        self.da[1] = self.C[2][1] / self.C[2][0]                     # calibration scaling increment system 1
-        self.da[2] = self.C[2][1] / self.C[1][0]                     # calibration scaling increment system 2
+        self.da[1] = self.C[2][1] / self.C[2][0]                                 # calibration scaling increment system 1
+        self.da[2] = self.C[2][1] / self.C[1][0]                                 # calibration scaling increment system 2
 
-        self.db[1] = self.M1[1] - self.da[1]*self.M1[0]              # calibration bias increment system 1
-        self.db[2] = self.M1[2] - self.da[2]*self.M1[0]              # calibration bias increment system 2
+        self.db[1] = self.M1[1] - self.da[1]*self.M1[0]                          # calibration bias increment system 1
+        self.db[2] = self.M1[2] - self.da[2]*self.M1[0]                          # calibration bias increment system 2
+
+        self.errvar[0] = self.C[0][0] - self.C[1][0]*self.C[2][0]/self.C[2][1]   # error variance system 0
+        self.errvar[1] = self.C[1][1] - self.C[1][0]*self.C[2][1]/self.C[2][0]   # error variance system 1
+        self.errvar[2] = self.C[2][2] - self.C[2][0]*self.C[2][1]/self.C[1][0]   # error variance system 2
 
         # update calibration scalings and biases; check if calculation has converged
         #
@@ -166,12 +166,6 @@ class TripColProcess:
             self.b[i] = self.b[i] + self.db[i]
             if abs(self.db[i]) > precision:
                 self.converged = False
-        
-        # solve covariance equations for error variances
-        #
-        self.errvar[0] = self.C[0][0] - self.t2                      # error variance system 0
-        self.errvar[1] = self.C[1][1] - self.a[1]*self.a[1]*self.t2  # error variance system 1
-        self.errvar[2] = self.C[2][2] - self.a[2]*self.a[2]*self.t2  # error variance system 2
 
 
     def print_results(self, verbosity):
