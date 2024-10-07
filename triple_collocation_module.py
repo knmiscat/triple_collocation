@@ -1,8 +1,11 @@
 # Python program for triple collocation
 #
-# Version 1.0  29-04-2019
-# Jur Vogelzang (KNMI)
-# with help from Jos de Kloe and Jeroen Verspeek (KNMI)
+# Version 1.2  19-06-2024
+# Jur Vogelzang (KNMI, Netherlands)
+# with help from Jos de Kloe and Jeroen Verspeek (KNMI, Netherlands)
+# Special thanks to Weicheng Ni (NUDT, China) for correct handling of
+# representativeness errors , and Federico Cossu (CSIC, Spain) for
+# improving the 4-sigma test (referred further to as variance test)
 #
 
 from __future__ import print_function
@@ -12,38 +15,69 @@ class TripColProcess:
     """ do triple collocation """
 
     def __init__(self):
-        self.b         = [0.0 , 0.0 , 0.0]                                             # calibration biases
-        self.a         = [1.0 , 1.0 , 1.0]                                             # calibration scalings
-        self.M1        = [0.0 , 0.0 , 0.0]                                             # first-order moments (averages)
-        self.M2        = [[0.0 , 0.0 , 0.0] , [0.0 , 0.0 , 0.0] , [0.0 , 0.0 , 0.0]]   # second-order moments
-        self.C         = [[0.0 , 0.0 , 0.0] , [0.0 , 0.0 , 0.0] , [0.0 , 0.0 , 0.0]]   # covariances
-        self.db        = [0.0 , 0.0 , 0.0]                                             # increment in calibration bias (additive)
-        self.da        = [1.0 , 1.0 , 1.0]                                             # increment in calibration scaling (multiplicative)
-        self.D1        = [[0.0 , 0.0 , 0.0] , [0.0 , 0.0 , 0.0] , [0.0 , 0.0 , 0.0]]   # first moment of distance
-        self.D2        = [[0.0 , 0.0 , 0.0] , [0.0 , 0.0 , 0.0] , [0.0 , 0.0 , 0.0]]   # second moment of distance
-        self.dvar      = [[9.0 , 9.0 , 9.0] , [9.0 , 9.0 , 9.0] , [9.0 , 9.0 , 9.0]]   # variances of distance (system i - system j)
-        self.t2        = 0.0                                                           # common variance of all three systems
-        self.errvar    = [0.0 , 0.0 , 0.0]                                             # error variances
-        self.accepted  = 0                                                             # number of accepted collocations
-        self.rejected  = 0                                                             # number of rejected collocations (failed sigma test)
-        self.converged = False                                                         # has triple collocation converged?
+        self.b         = [0.0, 0.0, 0.0]                                       # calibration biases
+        self.a         = [1.0, 1.0, 1.0]                                       # calibration scalings
+        self.M1        = [0.0, 0.0, 0.0]                                       # first-order moments (averages)
+        self.M2        = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]   # second-order moments
+        self.C         = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]   # covariances
+        self.db        = [0.0, 0.0, 0.0]                                       # increment in calibration bias (additive)
+        self.da        = [1.0, 1.0, 1.0]                                       # increment in calibration scaling (multiplicative)
+        self.D1        = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]   # first moment of distance
+        self.D2        = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]   # second moment of distance
+        self.dvar      = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]   # variances of distance (system i - system j)
+        self.t2        = 0.0                                                   # common variance of all three systems
+        self.errvar    = [0.0, 0.0, 0.0]                                       # error variances
+        self.accepted  = 0                                                     # number of accepted collocations
+        self.rejected  = 0                                                     # number of rejected collocations (failed sigma test)
+        self.converged = False                                                 # has triple collocation converged?
 
 
-    def reset_moments(self):
+    def update_distances(self, input_file):
     #
-    #   resets the first-order and second-order moments to zero
+    #   reads the collocations and calculates the distances for the sigma test
     #
-        self.M1 = [0.0 , 0.0 , 0.0]
-        self.M2 = [[0.0 , 0.0 , 0.0] , [0.0 , 0.0 , 0.0] , [0.0 , 0.0 , 0.0]]
-        self.D1 = [[0.0 , 0.0 , 0.0] , [0.0 , 0.0 , 0.0] , [0.0 , 0.0 , 0.0]]
-        self.D2 = [[0.0 , 0.0 , 0.0] , [0.0 , 0.0 , 0.0] , [0.0 , 0.0 , 0.0]]
+        self.D1 = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+        self.D2 = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
 
+        f = open(input_file , "r")
+        n = 0
 
+        # read collocations from file
+        #
+        for line in f:
+            x = line.split( )
+
+            # calibrate the collocation data with the current calibration coefficients
+            # note: the error model is x = a*t + b + delta, with delta the error
+            # here we need an estimate for t (the calibrated value),
+            # so we must apply the inverse formula t = x_cal = (x - b)/a
+            #
+            xcal = []
+            for i in range(3):
+                xcal.append((float(x[i]) - self.b[i])/self.a[i])
+
+            n = n + 1
+            R = 1.0/float(n)
+            for i in range(3):
+                for j in range(3):
+                    dist = xcal[i] - xcal[j]
+                    self.D1[i][j] = self.D1[i][j] + R*(dist - self.D1[i][j])
+                    self.D2[i][j] = self.D2[i][j] + R*(dist*dist - self.D2[i][j])
+        f.close()
+
+        # update dvar for variance test
+        #
+        for i in range(3):
+            for j in range(3):
+                self.dvar[i][j] = self.D2[i][j] -  self.D1[i][j]*self.D1[i][j]
+
+    
     def update_moments(self, input_file, f_sigma):
     #
-    #   reads the collocations, applies the sigma-test, updates the moments, and sets
-    #   the new variances for the variance test
+    #   reads the collocations, applies the sigma-test, and updates the moments
     #
+        self.M1 = [0.0, 0.0, 0.0]
+        self.M2 = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
 
         f = open(input_file , "r")
         n = 0
@@ -82,9 +116,6 @@ class TripColProcess:
                     self.M1[i] = self.M1[i] + R*(xcal[i] - self.M1[i])
                     for j in range(3):
                         self.M2[i][j] = self.M2[i][j] + R*(xcal[i]*xcal[j] - self.M2[i][j])
-                        dist = xcal[i] - xcal[j]
-                        self.D1[i][j] = self.D1[i][j] + R*(dist - self.D1[i][j])
-                        self.D2[i][j] = self.D2[i][j] + R*(dist*dist - self.D2[i][j])
             else:
                 m = m + 1
         f.close()
@@ -102,11 +133,6 @@ class TripColProcess:
             print("tc:")
             quit()
 
-        # update dvar for variance test in next iteration
-        #
-        for i in range(3):
-            for j in range(3):
-                self.dvar[i][j] = self.D2[i][j] -  self.D1[i][j]*self.D1[i][j]
         
 
     def print_moments(self, verbosity):
@@ -136,9 +162,9 @@ class TripColProcess:
                 self.C[i][j] = self.M2[i][j] - self.M1[i]*self.M1[j]
 
         self.C[0][0] = self.C[0][0] - repr_err
-        self.C[0][1] = self.C[0][1] - self.a[1]*repr_err
-        self.C[1][0] = self.C[1][0] - self.a[1]*repr_err
-        self.C[1][1] = self.C[1][1] - self.a[1]*self.a[1]*repr_err
+        self.C[0][1] = self.C[0][1] - repr_err
+        self.C[1][0] = self.C[1][0] - repr_err
+        self.C[1][1] = self.C[1][1] - repr_err
 
         # solve covariance equations
         #
@@ -226,9 +252,10 @@ def do_tc(input_file, f_sigma=4.0, max_nr_of_iterations=20, repr_err=0.0, precis
             print("tc:  - rejected collocations       " , "{:12d}".format(tc.rejected))
             print("tc:  - total number of aollocations" , "{:12d}".format(tc.accepted + tc.rejected))
 
-        # update moments
+        # update distances for sigma test; update moments
         #
-        tc.reset_moments()
+        tc.update_distances(input_file)
+
         tc.update_moments(input_file, f_sigma)
         tc.print_moments(verbosity)
 
@@ -283,4 +310,3 @@ def do_tc(input_file, f_sigma=4.0, max_nr_of_iterations=20, repr_err=0.0, precis
     result.append(tc.rejected)
 
     return result
-
