@@ -1,11 +1,11 @@
 # Python program for triple collocation
 #
-# Version 1.2  19-06-2024
+# Version 2.0  27-07-2024
 # Jur Vogelzang (KNMI, Netherlands)
 # with help from Jos de Kloe and Jeroen Verspeek (KNMI, Netherlands)
 # Special thanks to Weicheng Ni (NUDT, China) for correct handling of
-# representativeness errors , and Federico Cossu (CSIC, Spain) for
-# improving the 4-sigma test (referred further to as variance test)
+# representativeness errors and Federico Cossu (CSIC, Spain) for
+# improving the sigma test (implemented here as a distance squared test)
 #
 
 from __future__ import print_function
@@ -22,9 +22,7 @@ class TripColProcess:
         self.C         = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]   # covariances
         self.db        = [0.0, 0.0, 0.0]                                       # increment in calibration bias (additive)
         self.da        = [1.0, 1.0, 1.0]                                       # increment in calibration scaling (multiplicative)
-        self.D1        = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]   # first moment of distance
-        self.D2        = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]   # second moment of distance
-        self.dvar      = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]   # variances of distance (system i - system j)
+        self.d2max     = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]   # maximum allowed distance squared between each pair
         self.t2        = 0.0                                                   # common variance of all three systems
         self.errvar    = [0.0, 0.0, 0.0]                                       # error variances
         self.accepted  = 0                                                     # number of accepted collocations
@@ -32,12 +30,12 @@ class TripColProcess:
         self.converged = False                                                 # has triple collocation converged?
 
 
-    def update_distances(self, input_file):
+    def update_distances(self, input_file, f_sigma):
     #
-    #   reads the collocations and calculates the distances for the sigma test
+    #   reads the collocations and calculates the distances squared multiplied by
+    #   f_sigma^2 for the sigma test
     #
-        self.D1 = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
-        self.D2 = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+        self.d2max = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
 
         f = open(input_file , "r")
         n = 0
@@ -56,23 +54,25 @@ class TripColProcess:
             for i in range(3):
                 xcal.append((float(x[i]) - self.b[i])/self.a[i])
 
+            # update distances
+            #            
             n = n + 1
             R = 1.0/float(n)
             for i in range(3):
-                for j in range(3):
-                    dist = xcal[i] - xcal[j]
-                    self.D1[i][j] = self.D1[i][j] + R*(dist - self.D1[i][j])
-                    self.D2[i][j] = self.D2[i][j] + R*(dist*dist - self.D2[i][j])
+                for j in range(i+1,3):
+                    dist2 = (xcal[i] - xcal[j])**2
+                    self.d2max[i][j] = self.d2max[i][j] + R*(dist2 - self.d2max[i][j])
         f.close()
 
-        # update dvar for variance test
+        # multiply with f_sigma^2 and symmetrize
         #
         for i in range(3):
-            for j in range(3):
-                self.dvar[i][j] = self.D2[i][j] -  self.D1[i][j]*self.D1[i][j]
+            for j in range(i+1,3):
+                self.d2max[i][j] = f_sigma*f_sigma * self.d2max[i][j]
+                self.d2max[j][i] = self.d2max[i][j] 
 
     
-    def update_moments(self, input_file, f_sigma):
+    def update_moments(self, input_file):
     #
     #   reads the collocations, applies the sigma-test, and updates the moments
     #
@@ -97,13 +97,13 @@ class TripColProcess:
             for i in range(3):
                 xcal.append((float(x[i]) - self.b[i])/self.a[i])
 
-            # sigma test (this is implemented here as a variance or sigma-squared test)
+            # sigma test (implemented here as a distance-squared test)
             #
             accept = True
             for i in range(3):
                 for j in range(i+1,3):
                     dist2 = (xcal[i] - xcal[j])**2
-                    if dist2 > f_sigma**2 * self.dvar[i][j]:
+                    if dist2 > self.d2max[i][j]:
                         accept = False
                         
             # update moments if the collocation passed the sigma test
@@ -134,7 +134,6 @@ class TripColProcess:
             quit()
 
         
-
     def print_moments(self, verbosity):
         if verbosity > 4:
             print("tc:")
@@ -147,10 +146,10 @@ class TripColProcess:
             print("tc:    " , "{:12.6f}{:12.6f}{:12.6f}".format(self.M2[2][0], self.M2[2][1], self.M2[2][2]))
         if verbosity > 5: 
             print("tc:")
-            print("tc:  - sigma test variances (only off-diagonal elements relevant)")
-            print("tc:    " , "{:12.6f}{:12.6f}{:12.6f}".format(self.dvar[0][0], self.dvar[0][1], self.dvar[0][2]))
-            print("tc:    " , "{:12.6f}{:12.6f}{:12.6f}".format(self.dvar[1][0], self.dvar[1][1], self.dvar[1][2]))
-            print("tc:    " , "{:12.6f}{:12.6f}{:12.6f}".format(self.dvar[2][0], self.dvar[2][1], self.dvar[2][2]))
+            print("tc:  - maximum distances squared for sigma test")
+            print("tc:    " , "{:12.6f}{:12.6f}{:12.6f}".format(self.d2max[0][0], self.d2max[0][1], self.d2max[0][2]))
+            print("tc:    " , "{:12.6f}{:12.6f}{:12.6f}".format(self.d2max[1][0], self.d2max[1][1], self.d2max[1][2]))
+            print("tc:    " , "{:12.6f}{:12.6f}{:12.6f}".format(self.d2max[2][0], self.d2max[2][1], self.d2max[2][2]))
 
 
     def solve(self, repr_err, precision):
@@ -167,6 +166,7 @@ class TripColProcess:
         self.C[1][1] = self.C[1][1] - repr_err
 
         # solve covariance equations
+        # the first moments and the covariances are from calibrated data
         #
         self.t2 = self.C[1][0] * self.C[2][0] / self.C[2][1]                     # common variance
 
@@ -202,7 +202,7 @@ class TripColProcess:
             print("tc:    " , "{:12.6f}{:12.6f}{:12.6f}".format(self.C[1][0], self.C[1][1], self.C[1][2]))
             print("tc:    " , "{:12.6f}{:12.6f}{:12.6f}".format(self.C[2][0], self.C[2][1], self.C[2][2]))
             print("tc:")
-            print("tc:  - calibration parameters increments")
+            print("tc:  - increments of calibration parameters")
             print("tc:                     system 0    system 1    system 2")
             print("tc:    -------------------------------------------------")
             print("tc:    - scalings :" , "{:12.6f}{:12.6f}{:12.6f}".format(self.da[0], self.da[1], self.da[2]))
@@ -254,9 +254,9 @@ def do_tc(input_file, f_sigma=4.0, max_nr_of_iterations=20, repr_err=0.0, precis
 
         # update distances for sigma test; update moments
         #
-        tc.update_distances(input_file)
+        tc.update_distances(input_file, f_sigma)
 
-        tc.update_moments(input_file, f_sigma)
+        tc.update_moments(input_file)
         tc.print_moments(verbosity)
 
         # solve covariance equations
@@ -310,3 +310,4 @@ def do_tc(input_file, f_sigma=4.0, max_nr_of_iterations=20, repr_err=0.0, precis
     result.append(tc.rejected)
 
     return result
+

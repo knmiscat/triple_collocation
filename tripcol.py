@@ -1,9 +1,9 @@
 # Python program for triple collocation
 #
-# Version 1.0  01-05-2019
-# Jur Vogelzang (KNMI)
-# with help from Jos de Kloe and Jeroen Verspeek (KNMI)
-#
+# Version 2.0  27-07-2024
+# Jur Vogelzang (KNMI, Netherlands)
+# with help from Jos de Kloe and Jeroen Verspeek (KNMI, Netherlands)
+# special thanks to Weicheng Ni (NUDT, China) and Federico Cossu (CSIC, Spain)
 
 import argparse
 from triple_collocation_module import do_tc
@@ -31,6 +31,18 @@ def usage():
     print("tc:")
     print("tc:  -r <R2>           : set representativeness error variance to R2 (default: 0.0)")
     print("tc:  --reprerr <R2>    : same as -r")
+    print("tc:")
+    print("tc:  -v <V>            : set verbosity to V (default: 1); the higher the verbosity, the more output")
+    print("tc:  --verbosity <V>   : same as -v")
+    print("tc:")
+    print("tc:  output for verbosity values:")
+    print("tc:     V = 0  : no output (except error messages)")
+    print("tc:     V = 1  : default output (see manual)")
+    print("tc:     V = 2  : collocation statistics per iteration")
+    print("tc:     V = 3  : covariances and calibration increments per iteration")
+    print("tc:     V = 4  : intermediate triple collocation rsults per iteration")
+    print("tc:     V = 5  : first and second moments per iteration")
+    print("tc:     V = 6  : maximum distances squared for sigma test per iteration")
     print("tc:")
 
 

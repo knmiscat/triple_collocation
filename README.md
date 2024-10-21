@@ -1,4 +1,6 @@
 # triple_collocation
 Python software for basic triple collocation analysis.
 
-Module triple_collocation.py is version 1.1 and should be used instead of the previous version, because of a bug in handling representativeness errors. The documentation is updated accordingly,
+version 2.0 improved sigma test
+version 1.1 improved handling of representativeness errors
+version 1.0 initial version
